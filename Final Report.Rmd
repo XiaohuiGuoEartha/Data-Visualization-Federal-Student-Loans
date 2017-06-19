@@ -1,0 +1,1013 @@
+---
+title: "Team: Not Trump University"
+author: "Project 3: Federal Student Loans"
+output: html_document
+---
+
+```{r, echo=FALSE}
+setwd("~/desktop/EDAV3/source")
+
+```
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r, echo=FALSE}
+#install.packages('datasets')
+#install.packages('ggplot2')
+#install.packages('maps')
+#install.packages('stringr)
+#install.packages('leaflet')
+#install.packages('mapproj')
+#install.packages('readxl')
+#install.packages('RColorBrewer')
+#install.packages('classInt')
+#devtools::install_github("mattflor/chorddiag")
+
+library(leaflet)
+library(readxl) 
+library(RColorBrewer)
+library(classInt)
+library(maps)
+library(datasets)
+library(ggplot2)
+library(mapproj)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(chorddiag)
+library(pander)
+```
+###Background
+
+Our story began with an article published in The Washington Post ([How financial need sways graduation rates ](https://www.washingtonpost.com/local/education/how-financial-need-sways-graduation-rates--and-which-schools-beat-the-odds/2015/09/24/8ac6f704-62d2-11e5-8e9e-dce8a2a2a679_story.html), 2007). This article compares the graduation rates between Pell-eligible students (students who are qualified for federal Pell grants, ie. whose families make less than $50,000 per year) and non-Pell students to evaluate the effectiveness of federal financial aid on student success beyond mere college access. After analysis of data from 1150 schools in the US, it was found that Pell-eligible students in general have lower graduation rates (51%) than non-Pell students (65%). Although results are greatly varied by individual schools, it revealed a fact that some schools didn't do enough in helping their Pell-eligible students get through college. Our goal here is to futher explore the relationship between federal students aid and graduation rate (by school types) as well as some other factors, for example, default rate on loans, and hopefull this could help people with their college selecting decisions.
+
+Our idea can also be summarized by the following figure:
+
+<div style="text-align: center;">
+ <span style="float:center;width: 100px; height:60px">
+   ![Final_Diagram](Final_Diagram.png )
+ </span>
+</div>
+
+###Google Search Trend for "FAFSA"
+To start, we wanted to know about our audience - students interested in federal financial aid. We use an aggregated Google search queries dataset (2005 to 2010), which includes the search queries for “FAFSA” -[Free application for Federal Student Aid](https://studentaid.ed.gov/sa/fafsa) across the country within the five years. We chose data around " Dec, Jan, Feb, March, Apr" as our focus of study, because those are the time periods for students to apply for Financial aid. Since FAFSA is required for every student when applying for federal student aid, we assume it could give us some insights about the time and location factors trending in people’s interests in student aid. The colors indicate different search frequencies within each state given a certain time period. (From Red to Yellow represent “searched most” to “searched least”)
+
+```{r,echo = FALSE,results ="hide", warning = FALSE, message = FALSE, eval = FALSE}
+#Note: Need to change wd for your particular computer
+
+FAFSA_volume2  <- read.table("WeeklyAgg_FAFSA_update.csv", fill = TRUE, sep=",", row.names = NULL,skip = 1)
+FAFSA_volume2$region <- tolower(state.name)
+FAFSA_volume2 <- FAFSA_volume2[,-1]
+for(i in 1:2){
+  timename <- as.character(colnames(FAFSA_volume2)[i])
+  states <- map_data("state")
+  
+  map.df <- merge(states,FAFSA_volume2, by="region", all.x=T)
+  map.df <- map.df[order(map.df$order),]
+  plt <- ggplot(map.df, aes(x=long,y=lat,group=group))+ geom_polygon(aes_string(fill=timename))+
+    geom_path()+ scale_fill_gradientn(colours=rev(heat.colors(10)),na.value="grey90")+
+    coord_map() + theme(legend.title=element_blank()) + ggtitle(timename)
+}
+
+frames = 30
+for(i in 1:frames){
+  # creating a name for each plot file with leading zeros
+  if (i < 10) {name = paste('000',i,'plot.png',sep='')}
+  
+  if (i < 100 && i >= 10) {name = paste('00',i,'plot.png', sep='')}
+  if (i >= 100) {name = paste('0', i,'plot.png', sep='')}
+  
+  #saves the plot as a .png file in the working directory
+  ggsave(name)
+  timename <- as.character(colnames(FAFSA_volume2)[i])
+  
+  states <- map_data("state")
+  map.df <- merge(states,FAFSA_volume2, by="region", all.x=T)
+  map.df <- map.df[order(map.df$order),]
+  plt <- ggplot(map.df, aes(x=long,y=lat,group=group))+ geom_polygon(aes_string(fill=timename))+
+    geom_path()+ scale_fill_gradientn(colours=rev(heat.colors(10)),na.value="grey90")+
+    coord_map() + theme(legend.title=element_blank()) + ggtitle(timename)
+}
+```
+
+```{r, echo=FALSE,eval = FALSE}
+#setwd("/Users/bobminnich/Documents/Columbia/Courses/DataVisualization/Homework3/EDAV - Project3/frames")
+
+make.mov <- function(){
+    system("convert *.png -set delay 3/2  Search.gif")
+    #1/1 is 1 second per 2 frames
+}
+make.mov()
+```
+![Search](Search.gif)
+ 
+Based on the graphic above, we can see that:
+
+* People from the South and Northeast regions are more likely to apply for federal financial aid than those from the West and Midwest. People from states like Florida and Texas show constant high interest in financial aid, while those from California tend to have much less interest in general. That could have something to do with the general tuition and financial situation around those respective areas.
+
+###Google Search Trend for "Pell Grants"
+We also did a similar graph for the search of  "Pell Grants":
+
+![PellGrants](PellGrants.gif)
+
+The results are pretty consistent with the previous one, which raises another interesting point: people who search for “FAFSA” are also very likely to search for “Pell Grants”.
+
+We then moved to our first question: how federal financial aid plays into the choice of school.
+
+### Aid Disbursements by school:
+To begin, we divided schools into three different types in order to compare the Average Aid Disbursements within each type. And here, we choose three Financial Aid packages to study.
+
+<table border="1" align="center" width="800">
+<tr>
+<th>Type</th>
+<th>Example</th>
+</tr>
+<tr>
+<td>Public School</td>
+<td>Ohio State University</td>
+</tr>
+<tr>
+<td>Private/Non-Profit School</td>
+<td>Columbia Unviversity</td>
+</tr>
+<tr>
+<td>Proprietary School</td>
+<td>Kaplan Unviversity</td>
+</tr>
+</table>
+
+<br>
+<br>
+
+<table border="1" align="center", width="800">
+<tr>
+<th>Aid Type</th>
+<th>Description</th>
+</tr>
+<tr>
+<td>FSEOG</td>
+<td>Federal Supplemental Educational Opportunity Grant: (no repaid)</td>
+</tr>
+<tr>
+<td>Perkins</td>
+<td>Fedueral Perkins Loan: (low interest loan)</td>
+</tr>
+<tr>
+<td>FWS</td>
+<td>Federal Work-Study Program: Provides funds for part time employment</td>
+</tr>
+</table>
+
+<br>
+
+
+The following chord diagram can help understand how much money is available per student for different types of federal aid. This is split up by institution type.
+
+```{r, message=F, warning=F, echo = FALSE, fig.align='center',fig.height=7, fig.width=8}
+
+library(grid)
+library(gridExtra)
+
+library(dplyr)
+library(tidyr)
+#devtools::install_github("mattflor/chorddiag")
+
+library(chorddiag)
+library(pander)
+library(stringr)
+
+
+aid <- read.csv("fws_loan_fseog_by_college.csv", header=1, sep=",", stringsAsFactors=FALSE)
+aid2 <- read.csv("fws_loan_fseog_by_college.csv", header=1, sep=",", stringsAsFactors=FALSE)
+
+
+for(i in 6:14){
+  aid[,i] = str_replace_all( aid[,i], fixed("$"), "")
+  aid[,i] = str_replace_all( aid[,i], fixed(","), "")
+  aid[,i] = str_replace_all( aid[,i], fixed("-"), "0")
+  aid[,i] = str_replace_all( aid[,i], fixed(" "), "0")
+  test = aid[,i] == ""
+  aid[test,i] = 0
+}
+
+
+aid$FWS.Disbursements = as.numeric(as.character(aid$FWS.Disbursements))
+aid$PL.Disbursements = as.numeric(as.character(aid$PL.Disbursements))
+aid$FSE.Disbursements = as.numeric(as.character(aid$FSE.Disbursements))
+
+aid$FWS.Recipients = as.numeric(aid$FWS.Recipients) 
+aid$PL.Recipients = as.numeric(aid$PL.Recipients) 
+aid$FSE.Recipients = as.numeric(aid$FSE.Recipients) 
+
+
+aid$FWS.Federal.Award = as.numeric(aid$FWS.Federal.Award) 
+aid$PL.Federal.Award = as.numeric(aid$PL.Federal.Award) 
+aid$FSE.Federal.Award = as.numeric(aid$FSE.Federal.Award) 
+
+by_type_aid <- aid %>%
+  group_by(School.Type)
+
+
+reim = summarise(by_type_aid,avg1 = sum(FWS.Disbursements)/sum(FWS.Recipients),
+                 avg2 = sum(PL.Disbursements)/sum(PL.Recipients),
+                 avg3 = sum(FSE.Disbursements)/sum(FSE.Recipients))
+
+aid.mat <- data.matrix(reim)
+
+dimnames(aid.mat ) <- list(School.Type = unique(aid$School.Type),
+                            Aid.Type = c("School.Type","FWS","Perkins","FSEOG"))
+
+aid.mat2 = aid.mat[,-1]
+test = data.frame(aid.mat2)
+chorddiag(aid.mat2, type="bipartite", showTicks = FALSE,categorynamePadding = 100,categorynameFontsize = 18,groupnameFontsize = 12,groupnamePadding = 10)
+
+```
+From this chord diagram, we have some interesting findings:
+
+* FSEOG on average provides less money than the other two types of aid (Likely because it is a grant).
+* Students in private schools tend to get more money which could be tied to the more expensive tuition on average.
+* Perkins and FWS could be good choices for students in public school, since they could get about the same money as those in private institutions with lower tuition to cover.
+* Those who are interested in private schools should consider applying for either FSEOG or Perkins, since they both tend to be more generous to private institution students. FWS on the other hand, offers less.
+* Similarly, for proprietary (for-profit) school students, Perkins will be the better choice when considering the aid disbursement only.
+
+We then sought to move to the next level: Investigating the success rates of students at different schools receiving various forms of federal aid.
+
+###Challenges in finding data  
+We wanted initially to relate the financial aid types to graduation rate at each school, but we ran into some problems finding the data, since until last year it was not required to be reported:
+
+<div style="text-align: center;">
+ <span style="float:center;width: 100px;">
+   ![hechiger](hechinger_title.png)
+ </span>
+</div>
+
+
+<div style="text-align: center;">
+ <span style="float:center;width: 300px;">
+  ![hechiger_blurb](hechinger_blurb.png)
+ </span>
+</div>
+
+
+Source: http://hechingerreport.org/an-unprecedented-look-at-pell-grant-graduation-rates-from-1149-schools/
+
+We can see from the data that there are still many schools not reporting their proper statistics and this is most likely because they are trying to hide information that could hurt their enrollment. We made a chord diagram to actually show the information incompleteness in our dataset. In this Chord Diagram, we basically took out all the schools with unreported information in order to see which types of schools are more likely have missing values. For example: Over all schools have no value in the “Completion Rates” field, most of them are proprietary institutions, and only few belong to private schools. Proprietary schools are also more likely to have unreported information on “Default rate on loans” field than others. The other two fields “Debt- Did Finish” and “Debt- Did Not Finish” don’t have a clear preference - all three types of schools are equally likely to generate missing values in these two fields, suggesting schools may be afraid to reveal the persistence of debt even amongst those who obtain a degree and are thus more likely to get a job.
+The description of the four fields we focus on are as follows:
+* Completion Rates: Completion rate for first-time, full-time students at four-year institutions (150% of expected time to completion/6 years)
+* Default Rates on Loans: Two-year cohort default rate repayment                
+* Debt for students that did finish: The median debt for students who have completed aid. 
+* Debt for students that did not finish: The median debt for students who have not completed aid 
+
+```{r, message=F, warning=F, echo = FALSE, fig.align='center',fig.height=7, fig.width=8}
+
+newdf = readRDS("Catch_All.RDS")
+write.csv(newdf,"Catch_All.csv")
+for(i in 3:ncol(newdf)){
+  newdf[,i] = as.numeric(str_replace_all( newdf[,i], fixed("PrivacySuppressed"), "NA"))
+}
+
+output = right_join(newdf,aid, by = c("OPEID"="OPE.ID"))
+
+#colSums(is.na(output))
+
+#Incomplete cases in Total
+new_output2 = output[(!complete.cases(output)),]
+
+
+#Count how many datapoints for each category
+by_type_aid <- output %>%
+  group_by(School.Type)
+total_counts = summarise(by_type_aid,avg1 = n() )
+private = total_counts[2,1]
+prop = total_counts[2,2]
+public = total_counts[2,3]
+
+#########################################
+#Determine number of NAs for Completion Rates
+#Incomplete cases in Completion rate
+new_output3 = output[(!complete.cases(output$C150_4)),]
+
+by_type_aid <- new_output3 %>%
+  group_by(School.Type)
+reim = summarise(by_type_aid,avg1 = sum(is.na(C150_4)))
+Completion = data.frame(reim[1],(reim[2] / total_counts[2]))
+#########################################
+#########################################
+#Determine number of NAs Two-year cohort default rate
+#Incomplete cases in Two-year cohort default rate
+new_output3 = output[(!complete.cases(output$CDR2)),]
+
+by_type_aid <- new_output3 %>%
+  group_by(School.Type)
+reim = summarise(by_type_aid,avg1 = sum(is.na(CDR2)))
+Two_default_rate = data.frame(reim[1],(reim[2] / total_counts[2]))
+#########################################
+#########################################
+#Determine number of NAs 3-year cohort default rate
+#Incomplete cases in 3-year cohort default rate
+new_output3 = output[(!complete.cases(output$CDR3)),]
+
+by_type_aid <- new_output3 %>%
+  group_by(School.Type)
+reim = summarise(by_type_aid,avg1 = sum(is.na(CDR3)))
+Three_default_rate = data.frame(reim[1],(reim[2] / total_counts[2]))
+#########################################
+#########################################
+#The median debt for students who have completed	aid	median_debt.completers.overall	float	GRAD_DEBT_MDN
+new_output3 = output[(!complete.cases(output$GRAD_DEBT_MDN)),]
+
+by_type_aid <- new_output3 %>%
+  group_by(School.Type)
+reim = summarise(by_type_aid,avg1 = sum(is.na(GRAD_DEBT_MDN)))
+GRAD_DEBT_completed = data.frame(reim[1],(reim[2] / total_counts[2]))
+#########################################
+#########################################
+#TThe median debt for students who have not completed	aid	median_debt.noncompleters	float	WDRAW_DEBT_MDN
+
+new_output3 = output[(!complete.cases(output$WDRAW_DEBT_MDN)),]
+
+by_type_aid <- new_output3 %>%
+  group_by(School.Type)
+reim = summarise(by_type_aid,avg1 = sum(is.na(WDRAW_DEBT_MDN)))
+WDRAW_DEBT_MDN_n_completed = data.frame(reim[1],(reim[2] / total_counts[2]))
+#########################################
+final_df = cbind(WDRAW_DEBT_MDN_n_completed,GRAD_DEBT_completed$avg1,Two_default_rate$avg1,Completion$avg1)
+names = c("Debt - Did Not Finish","Debt - Did Finish", "Default Rate on Loans", "Completion Rates")
+
+colnames(final_df) = names
+
+
+aid.mat <- data.matrix(final_df)
+aid.mat <- aid.mat[,-1]
+
+dimnames(aid.mat ) <- list(School.Type = unique(aid$School.Type),
+                            Aid.Type = names)
+
+aid.mat[,1] = aid.mat[,1]/sum(aid.mat[,1])
+aid.mat[,2] = aid.mat[,2]/sum(aid.mat[,2])
+aid.mat[,3] = aid.mat[,3]/sum(aid.mat[,3])
+aid.mat[,4] = aid.mat[,4]/sum(aid.mat[,4])
+
+chorddiag(aid.mat, type="bipartite", showTicks = FALSE,categorynamePadding = 100,categorynameFontsize = 18,groupnameFontsize = 10,groupnamePadding = 10, categoryNames = c("School Type","Unreported Fields"))
+
+```
+
+Although, the dataset is not complete, we still want to have a view of the information we have:
+
+###Key Attibutes when choosing schools:
+In order to do that, we take out all schools with complete information in the dataset and analyze their performance in the following grouped bar plot:
+
+```{r, message=F, warning=F, echo = FALSE, fig.align='center',fig.width=8}
+
+new_output = output[complete.cases(output),]
+
+by_type_aid <- new_output %>%
+  group_by(School.Type)
+Completion = summarise(by_type_aid,avg1 = mean(C150_4))
+
+by_type_aid <- new_output %>%
+  group_by(School.Type)
+Two_default_rate = summarise(by_type_aid,avg1 = mean(CDR2))
+
+by_type_aid <- new_output %>%
+  group_by(School.Type)
+GRAD_DEBT_completed = summarise(by_type_aid,avg1 = mean(GRAD_DEBT_MDN))
+
+by_type_aid <- new_output %>%
+  group_by(School.Type)
+WDRAW_DEBT_MDN_n_completed = summarise(by_type_aid,avg1 = mean(WDRAW_DEBT_MDN))
+
+
+library(reshape)
+final_df = cbind(WDRAW_DEBT_MDN_n_completed,GRAD_DEBT_completed$avg1)
+final_df2 = cbind(Two_default_rate,Completion$avg1)
+
+names = c("School","Debt - Did Not Finish","Debt - Did Finish")
+names2 = c("School","Default_Rate_on_Loans", "Completion_Rates")
+
+colnames(final_df) = names
+colnames(final_df2) = names2
+
+dfm <- melt(final_df[,names],id.vars = 1)
+dfm2 <- melt(final_df2[,names2],id.vars = 1)
+
+
+a = ggplot(dfm,aes(x = variable,y = value)) + 
+  geom_bar(aes(fill = School),stat="identity",position = "dodge")+
+  xlab("")+
+  ylab("Average Debt Amount")+
+  ggtitle("Average Debt")+
+  theme(legend.title=element_blank())
+
+  
+b = ggplot(dfm2,aes(x = variable,y = value)) + 
+  geom_bar(aes(fill = School),stat="identity",position = "dodge")+
+  xlab("")+
+  ylab("Percentage")+
+  ggtitle("Default Rate and Completion Rate")+
+  theme(legend.title=element_blank())
+
+
+  grid.newpage()
+  pushViewport(viewport(layout = grid.layout(3, 2, heights = unit(c(0.2,1,1), "null"))))
+  
+  #grid.text(MainTitle, vp = viewport(layout.pos.row = 1, layout.pos.col = 1:2))
+  
+  MainTitle = "Key Attributes when Choosing a School"
+  grid.text(MainTitle, vp = viewport(layout.pos.row = 1, layout.pos.col = 1:2))
+  print(a, vp = viewport(layout.pos.row = 2, layout.pos.col = 1:2),newpage=FALSE)
+  print(b, vp = viewport(layout.pos.row = 3, layout.pos.col = 1:2),newpage=FALSE)
+
+#############################################
+
+
+```
+
+* From the top graph, we can see that “debt for students who didn’t finish" and earn a degree (with median around $10000) is about half of the median debt for those who did (around $20000). In both cases, students in private schools face more debt than those in public schools - again, probably due to the higher tuition. Proprietary institutions, on the other hand, have the lowest median debt for those who did not finish school, but have the highest debt for those who did among all three types of schools.
+* Moving to the bottom graph, we can see that the default rates on loans for private schools are lowest (about 5%) and the completion rates are highest (over 50%) among all three types of schools. On the other hand, proprietary schools tend to have the largest default rates (over 10%) and smallest completion rates (about 40%). That should be something to consider when choosing between those two types of schools.
+
+
+
+
+#Interactive Map
+Finally, we created an interactive map to better assist our users with their choice of schools based on the location and some other key attributes. How to use this map:
+
+* First: You can choose between “Basic map” and “Satellite map”. The basic map will provide you the detailed address and the satellite map will show you the geographical location.
+* Next: Based on your location preference (you can select “state” on the right side bar for clearly defined state lines, which is useful when taking into account in-state tuition and aid), zoom in the map by clicking the “+” on the upper left corner or clicking the numbered bubbles (the number represents amount of schools within this area.)
+* Then: To sort amongst these many and varied schools, you can choose by other factors (for example: Pell Grant or Graduation rate). Just select the field you are interested in on the right side bar. You’ll see there are small colorful circles around individual schools (the bigger size of the circles represent larger number in this field). For example, if I want to find schools based on graduation rate, I can select that field, zoom in to the area and click the graduation cap icons with bigger sized circles to view. The three colors of icons represent three different types of schools :
+    + Blue :  Public Schools
+    + Orange: Private-Nonprofit Schools
+    + Purple : Proprietary Schools.
+* The color of the circles (working similarly as the size) also indicates amount of average disbursements for “Pell Grant” and “Federal Work Study Grant”. A detailed index is displayed on the lower left bar.
+
+Once you click on individual schools, it will give you the information about school’s name, type, Pell Average Disbursement and so on. Take Columbia University for example:
+
+<div style="text-align: center;">
+ <span style="float:center;width: 300px;">
+   ![columbia](columbia.png) 
+ </span>
+</div>
+
+
+
+We can see that: The average Pell disbursment in Columbia is about $2549.31, and our graduation rate is about 93% with only 1.9% loan default rate on average.
+
+###Now Enjoy the Map!
+
+```{r echo=FALSE, results='hide',message=FALSE, warning=FALSE, error=FALSE}
+#install.packages('leaflet')
+#install.packages('maps')
+#install.packages('mapproj')
+#install.packages('readxl')
+#install.packages('RColorBrewer')
+#install.packages('classInt')
+
+library(leaflet)
+library(maps)
+library(mapproj)
+library(readxl) #'read_excel'
+library(RColorBrewer)
+library(classInt)
+
+
+
+#import data from RDS file
+rawData <- readRDS("Private_Public_Location.RDS")
+
+head(rawData)
+
+USuniversity <- rawData[c(1,2,17,73,74,75,76,77,78,79)]
+#Rename Columns
+colnames(USuniversity) <- c("Uniersity_ID", "University_Name", "Financial_aid_office_URL",
+                            "school_type","Pell_sum_of_recipient","Pell_sum_of_disbursements",
+                            "Teach_America_sum_of_recipient","Teach_America_sum_of_disbursements",
+                            "veterans_sum_of_recipient","veterans_sum_of_disbursements")
+USuniversity$Pell_sum_of_recipient <- as.numeric(gsub(",", "", as.character(USuniversity$Pell_sum_of_recipient)))
+USuniversity$Teach_America_sum_of_recipient <- as.numeric(gsub(",", "", as.character(USuniversity$Teach_America_sum_of_recipient )))
+USuniversity$veterans_sum_of_recipient <- as.numeric(gsub(",", "", as.character(USuniversity$veterans_sum_of_recipient)))
+
+
+USuniversity$Pell_sum_of_disbursements <- as.numeric(gsub('[^a-zA-Z0-9.]', '', USuniversity$Pell_sum_of_disbursements ))
+USuniversity$Teach_America_sum_of_disbursements <- as.numeric(gsub('[^a-zA-Z0-9.]', '', USuniversity$Teach_America_sum_of_disbursements ))
+USuniversity$veterans_sum_of_disbursements <- as.numeric(gsub('[^a-zA-Z0-9.]', '', USuniversity$veterans_sum_of_disbursements ))
+
+
+
+USuniversity$school_type <- as.character(USuniversity$school_type)
+
+
+USuniversity$Pell_average_disbursements <- round((USuniversity$Pell_sum_of_disbursements / USuniversity$Pell_sum_of_recipient),digit=2)
+USuniversity$Teach_America_average_disbursements <- round((USuniversity$Teach_America_sum_of_disbursements / USuniversity$Teach_America_sum_of_recipient),digit=2)
+USuniversity$veterans_average_disbursements <- round((USuniversity$veterans_sum_of_disbursements / USuniversity$veterans_sum_of_recipient),digit=2)
+
+
+
+
+
+#import data from excel 
+
+#import data 
+rawExcel <- read_excel("postscndryunivsrvy2013dirinfo.xls")
+
+
+USuniversityExcel <- rawExcel[ c(1,65,66)]
+#Rename Columns
+colnames(USuniversityExcel) <- c("Uniersity_ID", "Longitude",
+                             "Latitude")
+
+
+#Merge two data set by University ID.
+USuniversityReady1 <- merge(USuniversity,USuniversityExcel,by="Uniersity_ID")
+
+
+
+
+
+
+
+#import data from csv 
+
+#import data 
+rawcsv <- read.csv("fws_loan_fseog_by_college.csv", header= TRUE, sep=",",
+quote = "\"", dec =".")
+
+rawcsvready <- rawcsv[c(2,6,8)]
+#Rename Columns
+colnames(rawcsvready) <- c("University_Name", "federal_work_study_recipient",
+                             "federal_work_study_disbursements")
+
+USuniversityCSV <- merge(USuniversityReady1, rawcsvready, by ="University_Name")
+
+USuniversityCSV$federal_work_study_recipient <- as.numeric(gsub('[^a-zA-Z0-9.]', '', USuniversityCSV$federal_work_study_recipient ))
+USuniversityCSV$federal_work_study_disbursements <- as.numeric(gsub('[^a-zA-Z0-9.]', '', USuniversityCSV$federal_work_study_disbursements ))
+USuniversityCSV$federal_work_study_average_disbursements <- round((USuniversityCSV$federal_work_study_disbursements / USuniversityCSV$federal_work_study_recipient),digit=2)
+
+
+USuniversityCSV1 <- USuniversityCSV[c(1,18)]
+
+
+
+
+
+
+
+
+
+
+#import data from csv catch all
+#import data 
+rawcsv_catch_all <- read.csv("Catch_All.csv", header= TRUE, sep=",",
+                   quote = "\"", dec =".")
+
+rawcsv_catch_all_ready <- rawcsv_catch_all[c(2,3,4,5,6,7,8,9,10)]
+
+#Rename Columns
+colnames(rawcsv_catch_all_ready) <- c("University-id","University_Name", "Average_attendence_cost", 
+                                      "Graduation_rate", "repay","Det_completed",
+                                      "Det_uncompleted", "TWo_Year_Default","Three_Year_Default" )
+
+
+USuniversityReady2 <- merge(USuniversityReady1,rawcsv_catch_all_ready,by="University_Name")
+
+USuniversityReady <- merge(x=USuniversityReady2,y=USuniversityCSV1,by="University_Name",all.x = TRUE)
+
+nrow(USuniversityReady)
+nrow(USuniversityReady2)
+
+#delete duplicate row by University Name.
+USuniversityReady <- USuniversityReady[!duplicated(USuniversityReady[,1]),]
+USuniversityReady <- USuniversityReady[!duplicated(USuniversityReady[,2]),]
+
+
+#check number of rows
+nrow(USuniversityReady)
+nrow(USuniversityReady2)
+
+
+forpell <- USuniversityReady[c(1,2,11,14,15)]
+forpell <- na.omit(forpell)
+nrow(forpell)
+
+forpell_content <-USuniversityReady[c(1,3,4,11,14,15)]
+forpell_content <-na.omit(forpell_content)
+
+
+
+
+
+forworkstudy <- USuniversityReady[c(1,2,14,15,24)]
+forworkstudy <- na.omit(forworkstudy)
+nrow(forworkstudy)
+
+forworkstudy_content <-  USuniversityReady[c(1,3,4,11,14,15,24)]
+forworkstudy_content <- na.omit(forworkstudy_content)
+
+
+
+forgraduation_rate <- USuniversityReady[c(1,2,14,15,18)]
+forgraduation_rate <- na.omit(forgraduation_rate)
+nrow(forworkstudy)
+
+forgraduation_rate_content <- USuniversityReady[c(1,3,4,11,14,15,18)]
+forgraduation_rate_content <- na.omit(forgraduation_rate_content)
+
+
+
+forloan <- USuniversityReady[c(1,2,14,15,22)]
+forloan <- na.omit(forloan)
+nrow(forworkstudy)
+
+forloan_content <- USuniversityReady[c(1,3,4,11,14,15,22)]
+forloan_content<- na.omit(forloan_content)
+
+
+
+
+#Data set is ready. Start to create the interactive map.
+
+mapStates = map("state", fill = TRUE, plot = FALSE)
+
+
+# markers for different levels
+myIcons <- icons(
+iconUrl = ifelse(USuniversityReady$school_type == "PRIVATE-NONPROFIT",
+                  "https://reslife.missouristate.edu/assets/reslife/Icon_-_LLC_-_Honors.png",
+          ifelse(USuniversityReady$school_type == "PROPRIETARY",
+            "https://gitlab.setic.ufsc.br/uploads/group/avatar/13/Icon_University.png",
+                  "http://ammras.elmapharmamarketing.in/images/university/icon-tuition.png" )
+              ),
+  iconWidth = 25, iconHeight = 25,
+  iconAnchorX = 12, iconAnchorY = 54
+)
+
+
+
+
+
+
+content <- paste(sep = "<br/>", 
+                 
+                 "***************************************************",                
+"Yay!!! You clicked the University!",              
+"***************************************************",
+"University Name : ", USuniversityReady$University_Name, "***************************************************",
+"School Type : ", USuniversityReady$school_type,  "***************************************************",
+"Financial Aid Office URL : ", USuniversityReady$Financial_aid_office_URL, "***************************************************",
+"Pell Average Disbursement in $: ", USuniversityReady$Pell_average_disbursements, "***************************************************",
+"Federal Work Study Average Disbursement in $: ", USuniversityReady$federal_work_study_average_disbursements,"***************************************************",
+"Graduation Rate: ", USuniversityReady$Graduation_rate, "***************************************************",
+"Loan Default Rate: ", USuniversityReady$TWo_Year_Default, "***************************************************"
+
+
+)
+
+
+content1 <- paste(sep = "<br/>",  
+                  
+                  "++++++++++++++++++++++++++++++++++++++++",
+                  
+                  "Yay!!! You clicked the circle!",
+                  "The radius of the circle is decided",
+                  "by the Pell Average Disbursement",
+                  
+ "++++++++++++++++++++++++++++++++++++++++",
+"University Name : ", forpell_content$University_Name,"++++++++++++++++++++++++++++++++++++++++",
+"School Type : ", forpell_content$school_type,"++++++++++++++++++++++++++++++++++++++++",
+"Financial Aid Office URL : ", forpell_content$Financial_aid_office_URL,"++++++++++++++++++++++++++++++++++++++++",
+"Pell Average Disbursement in $: ", forpell_content$Pell_average_disbursements, "++++++++++++++++++++++++++++++++++++++++"
+
+)
+
+
+
+
+content4 <- paste(sep = "<br/>",  
+                  
+                  "++++++++++++++++++++++++++++++++++++++++",
+                  
+                  "Yay!!! You clicked the circle!",
+                  "The radius of the circle is decided",
+                  "by the Federal Work Study Average Disbursement",
+                  
+ "++++++++++++++++++++++++++++++++++++++++",
+"University Name : ", forworkstudy_content$University_Name,"++++++++++++++++++++++++++++++++++++++++",
+"School Type : ", forworkstudy_content$school_type,"++++++++++++++++++++++++++++++++++++++++",
+"Financial Aid Office URL : ", forworkstudy_content$Financial_aid_office_URL,"++++++++++++++++++++++++++++++++++++++++",
+"Pell Average Disbursement in $: ", forworkstudy_content$Pell_average_disbursements, "++++++++++++++++++++++++++++++++++++++++",
+"Federal Work Study Average Disbursement in $: ", forworkstudy_content$federal_work_study_average_disbursements,"++++++++++++++++++++++++++++++++++++++++"
+
+)
+
+
+
+
+content5 <- paste(sep = "<br/>",  
+                  
+                  "++++++++++++++++++++++++++++++++++++++++",
+                  
+                  "Yay!!! You clicked the circle!",
+                  "The radius of the circle is decided",
+                  "by the Graduation Rate",
+                  
+                  "++++++++++++++++++++++++++++++++++++++++",
+                  "University Name : ", forgraduation_rate_content$University_Name,"++++++++++++++++++++++++++++++++++++++++",
+                  "School Type : ", forgraduation_rate_content$school_type,"++++++++++++++++++++++++++++++++++++++++",
+                  "Financial Aid Office URL : ", forgraduation_rate_content$Financial_aid_office_URL,"++++++++++++++++++++++++++++++++++++++++",
+                  "Pell Average Disbursement in $: ", forgraduation_rate_content$Pell_average_disbursements, "++++++++++++++++++++++++++++++++++++++++",
+                  "Graduation Rate: ", forgraduation_rate_content$Graduation_rate,"++++++++++++++++++++++++++++++++++++++++"
+                  
+                  
+)
+
+
+
+
+content6 <- paste(sep = "<br/>",  
+                  
+                  "++++++++++++++++++++++++++++++++++++++++",
+                  
+                  "Yay!!! You clicked the circle!",
+                  "The radius of the circle is decided",
+                  "by the Loan Default Rate",
+                  
+                  "++++++++++++++++++++++++++++++++++++++++",
+                  "University Name : ", forloan_content$University_Name,"++++++++++++++++++++++++++++++++++++++++",
+                  "School Type : ", forloan_content$school_type,"++++++++++++++++++++++++++++++++++++++++",
+                  "Financial Aid Office URL : ", forloan_content$Financial_aid_office_URL,"++++++++++++++++++++++++++++++++++++++++",
+                  "Pell Average Disbursement in $: ", forloan_content$Pell_average_disbursements, "++++++++++++++++++++++++++++++++++++++++",
+                  "Loan Default Rate: ", forloan_content$TWo_Year_Default,"++++++++++++++++++++++++++++++++++++++++"
+                  
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#find max and min
+max(USuniversityReady$Pell_average_disbursements, na.rm=TRUE)
+min(USuniversityReady$Pell_average_disbursements, na.rm=TRUE)
+
+max(USuniversityReady$Teach_America_average_disbursements, na.rm=TRUE)
+min(USuniversityReady$Teach_America_average_disbursements, na.rm=TRUE)
+
+max(USuniversityReady$veterans_average_disbursements, na.rm=TRUE)
+min(USuniversityReady$veterans_average_disbursements, na.rm=TRUE)
+
+max(USuniversityReady$federal_work_study_average_disbursements, na.rm=TRUE)
+min(USuniversityReady$federal_work_study_average_disbursements, na.rm=TRUE)
+
+
+#test color
+
+forcolor <- data.frame(c(USuniversityReady[,11],USuniversityReady[,12],USuniversityReady[,13],USuniversityReady[,24]))
+colnames(forcolor) <- c("color_value")
+
+forcolor <- na.omit(forcolor)
+
+max(forcolor$color_value,na.rm=TRUE)
+min(forcolor$color_value, na.rm=TRUE)
+
+
+
+
+
+
+
+pal <- brewer.pal(11, "Spectral")
+
+#now make it more continuous 
+#as a colorRamp
+pal <- colorRampPalette(pal)
+
+palData <- classIntervals(forcolor$color_value, style="quantile")
+
+
+#note, we use pal(100) for a smooth palette here
+#but you can play with this
+forcolor$colors <- findColours(palData, pal(100))
+
+
+
+
+
+
+
+usecolor1 = ifelse(forpell$Pell_average_disbursements >= 11  
+                   & forpell$Pell_average_disbursements < 1047.324,
+                 "#9E0142",
+                 ifelse(forpell$Pell_average_disbursements >= 1047.324 
+                        & forpell$Pell_average_disbursements < 1304.997,
+                        "#C72F4B",
+                        ifelse(forpell$Pell_average_disbursements >= 1304.997 
+                               & forpell$Pell_average_disbursements < 1538.841,
+                               "#E45647",
+                               ifelse(forpell$Pell_average_disbursements >= 1538.841 
+                                      & forpell$Pell_average_disbursements < 1758.404,
+                                      "#F6804B",
+                                      ifelse(forpell$Pell_average_disbursements >= 1758.404 
+                                             & forpell$Pell_average_disbursements < 1871.904,
+                                             "#FDB163",
+                                             ifelse(forpell$Pell_average_disbursements >= 1871.904 
+                                                    & forpell$Pell_average_disbursements < 2027.557,
+                                                    "#FDD784",
+                                                    ifelse(forpell$Pell_average_disbursements >= 2027.557 
+                                                           & forpell$Pell_average_disbursements < 2142.07,
+                                                           "#FEF2AA",
+                                                           ifelse(forpell$Pell_average_disbursements >= 2142.07 
+                                                                  & forpell$Pell_average_disbursements < 2227.403,
+                                                                  "#F5FAAF",
+                                                                  ifelse(forpell$Pell_average_disbursements >= 2227.403 
+                                                                         & forpell$Pell_average_disbursements < 2300.071,
+                                                                         "#DCF198",
+                                                                         ifelse(forpell$Pell_average_disbursements >= 2300.071 
+                                                                                & forpell$Pell_average_disbursements < 2382.004,
+                                                                                "#AEDEA2",
+                                                                                ifelse(forpell$Pell_average_disbursements >= 2382.004 
+                                                                                       & forpell$Pell_average_disbursements < 2487.781,
+                                                                                       "#7AC9A4",
+                                                                                       ifelse(forpell$Pell_average_disbursements >= 2487.781 
+                                                                                              & forpell$Pell_average_disbursements < 2620.803,
+                                                                                              "#4DA6AF",
+                                                                                              ifelse(forpell$Pell_average_disbursements >= 2620.803 
+                                                                                                     & forpell$Pell_average_disbursements < 2848.58,
+                                                                                                     "#3B7AB6",
+                                                                                                     "#5E4FA2" )) ) )) ) ) ) ) ) ) )
+)
+
+
+
+
+
+
+
+usecolor4 = ifelse(forworkstudy$federal_work_study_average_disbursements >= 11  
+                   & forworkstudy$federal_work_study_average_disbursements < 1047.324,
+                   "#9E0142",
+                   ifelse(forworkstudy$federal_work_study_average_disbursements >= 1047.324 
+                          & forworkstudy$federal_work_study_average_disbursements < 1304.997,
+                          "#C72F4B",
+                          ifelse(forworkstudy$federal_work_study_average_disbursements >= 1304.997 
+                                 & forworkstudy$federal_work_study_average_disbursements < 1538.841,
+                                 "#E45647",
+                                 ifelse(forworkstudy$federal_work_study_average_disbursements >= 1538.841 
+                                        & forworkstudy$federal_work_study_average_disbursements < 1758.404,
+                                        "#F6804B",
+                                        ifelse(forworkstudy$federal_work_study_average_disbursements >= 1758.404 
+                                               & forworkstudy$federal_work_study_average_disbursements < 1871.904,
+                                               "#FDB163",
+                                               ifelse(forworkstudy$federal_work_study_average_disbursements >= 1871.904 
+                                                      & forworkstudy$federal_work_study_average_disbursements < 2027.557,
+                                                      "#FDD784",
+                                                      ifelse(forworkstudy$federal_work_study_average_disbursements >= 2027.557 
+                                                             & forworkstudy$federal_work_study_average_disbursements < 2142.07,
+                                                             "#FEF2AA",
+                                                             ifelse(forworkstudy$federal_work_study_average_disbursements >= 2142.07 
+                                                                    & forworkstudy$federal_work_study_average_disbursements < 2227.403,
+                                                                    "#F5FAAF",
+                                                                    ifelse(forworkstudy$federal_work_study_average_disbursements >= 2227.403 
+                                                                           & forworkstudy$federal_work_study_average_disbursements < 2300.071,
+                                                                           "#DCF198",
+                                                                           ifelse(forworkstudy$federal_work_study_average_disbursements >= 2300.071 
+                                                                                  & forworkstudy$federal_work_study_average_disbursements < 2382.004,
+                                                                                  "#AEDEA2",
+                                                                                  ifelse(forworkstudy$federal_work_study_average_disbursements >= 2382.004 
+                                                                                         & forworkstudy$federal_work_study_average_disbursements < 2487.781,
+                                                                                         "#7AC9A4",
+                                                                                         ifelse(forworkstudy$federal_work_study_average_disbursements >= 2487.781 
+                                                                                                & forworkstudy$federal_work_study_average_disbursements < 2620.803,
+                                                                                                "#4DA6AF",
+                                                                                                ifelse(forworkstudy$federal_work_study_average_disbursements >= 2620.803 
+                                                                                                       & forworkstudy$federal_work_study_average_disbursements < 2848.58,
+                                                                                                       "#3B7AB6",
+                                                                                                       "#5E4FA2" )) ) )) ) ) ) ) ) ) )
+)
+
+
+
+
+#subset based on university type
+private <- subset(USuniversityReady, school_type == "PRIVATE-NONPROFIT")
+proprietary <- subset(USuniversityReady, school_type == "PROPRIETARY")
+public <- subset(USuniversityReady, school_type == "PUBLIC")
+
+nrow(private)
+nrow(proprietary)
+nrow(public)
+nrow(USuniversityReady)
+                            
+                            
+```
+
+```{r, echo=FALSE, fig.width=11, fig.height=6.5}
+
+  
+#map it!
+interactive_map <- leaflet() %>% 
+
+# Add tiles as baseGroup
+addProviderTiles("OpenStreetMap", group = "Basic Map") %>%
+addProviderTiles("Esri.WorldImagery", group = "Satellite Map") %>%
+
+
+
+    
+addMarkers( data=USuniversityReady,  lat = ~Latitude, lng = ~Longitude,
+                clusterOptions = markerClusterOptions(),icon = myIcons,
+                popup = ~(content))%>%
+    
+
+addCircles(data=forpell,color = ~(usecolor1), lat = ~Latitude, 
+lng = ~Longitude,radius = ~(Pell_average_disbursements)*0.3, popup = ~(content1),group="Pell Grant") %>%
+
+
+addCircles(data=forworkstudy,color = ~(usecolor4), lat = ~Latitude, 
+lng = ~Longitude,radius = ~(federal_work_study_average_disbursements)*0.3,group="Federal Work Study Grant") %>%
+
+addCircles(data=forgraduation_rate,color = "#ff80ab", lat = ~Latitude, 
+               lng = ~Longitude,radius = ~(Graduation_rate)*800,group="Graduation Rate") %>%
+    
+addCircles(data=forloan,color = "#18ffff", lat = ~Latitude, 
+               lng = ~Longitude,radius = ~(TWo_Year_Default)*1600,group="Loan Default Rate") %>%
+    
+    
+    
+    
+    
+    
+    
+addPolygons(data=mapStates, fillColor = heat.colors(3, alpha = NULL), stroke = FALSE,
+                        group = "States")  %>%
+
+    hideGroup("States") %>%
+    hideGroup("Federal Work Study Grant") %>% 
+    hideGroup("Graduation Rate") %>% 
+    hideGroup("Loan Default Rate") %>% 
+    
+    
+    
+    
+# Layers control
+addLayersControl(
+              baseGroups = c("Basic Map","Satellite Map"),
+overlayGroups = c("Pell Grant","Federal Work Study Grant","Graduation Rate", "Loan Default Rate","States"),
+
+
+                            options = layersControlOptions(collapsed = FALSE)
+            ) %>% 
+
+
+
+
+
+addLegend("bottomleft", colors = c("#9E0142", "#C72F4B", "#E45647",
+                                    "#F6804B", "#FDB163", "#FDD784", "#FEF2AA",
+                                    "#F5FAAF", "#DCF198", "#AEDEA2", "#7AC9A4",
+                                    "#4DA6AF", "#3B7AB6", "#5E4FA2"), 
+          labels = c("$11.00 ~ $1047.32", "$1047.32 ~ $1304.99","$1304.99 ~ $1538.841","$1538.841 ~ $1758.404",
+                     "$1758.404 ~ $1871.90","$1871.90 ~ $2027.55","$2027.55 ~ $2142.07","$2142.07 ~ $2227.40",
+                     "$2227.40 ~ $2300.071","$2300.071 ~ $2382.00","$2382.00 ~ $2487.78","$2487.78 ~ $2620.80",
+                     "$2620.80 ~ $2848.58","$2848.58 ~ $8717.44"),    opacity = 2,  title = "Average disbursements" )%>% 
+
+addLegend("bottomleft", colors = c("#f57f17", "#aa00ff", "#0091ea"), 
+          labels = c("Private", "Proprietary","Public"),    opacity = 2,  title = "University Type" )%>% 
+
+
+addLegend("bottomleft", colors = c("#ff80ab", "#18ffff"), 
+           labels = c("Graduation Rate","Loan Default Rate"),    opacity = 2 )
+
+
+
+interactive_map
+
+
+
+                     
+
+
+
+
+
+
+```
+
+###Data Souce:
+
+* [University ID and location](https://inventory.data.gov/dataset/032e19b4-5a90-41dc-83ff-6e4cd234f565/resource/38625c3d-5388-4c16-a30f-d105432553a4)
+
+* [Student Aid Data](https://studentaid.ed.gov/sa/about/data-center/student)
+
+* [Graduation Rate and other data on Federal Financial Aids](https://collegescorecard.ed.gov/data/)
+
+* [Google Search Query](https://www.google.com/trends/) 
